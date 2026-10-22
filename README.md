@@ -78,6 +78,19 @@ All code in this repository was written during the Zecathon 2026 build window, w
 
 MIT, see `LICENSE`.
 
+## Zcash mapping (plan, not built)
+
+Based on the public ZIP index; none of this is implemented or tested yet.
+
+| Our piece | Zcash building block | Status in the ZIP index |
+| --- | --- | --- |
+| Decoys | Small shielded notes (must stay above the current minimum fee, see ZIPs 2002 and 2009) | n/a |
+| Alarm / watcher | Viewing keys and light-client payment detection: ZIP 316, ZIP 307 | Drafts |
+| Two-party rule on the real note | FROST spend authorization: ZIP 312, with partially created transactions: ZIP 374 | Drafts |
+| Timeout recovery | No shielded timelock found; a third key share is the likely replacement (ZIP 203 is transaction expiry, not a note lock) | Simulated here |
+
+Open question: which shielded pool to use on testnet (several ZIPs concern Orchard, see ZIP 326). Check before building.
+
 ## Threat model
 
 **In scope:** one stolen sender key (a sweep of whatever that key can spend), blind attackers who cannot tell notes apart, a receiver who disappears.
