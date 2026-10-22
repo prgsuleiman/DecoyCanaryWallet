@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoy Canary Wallet</title>
+<meta name="description" content="A tripwire for wallet compromise: one real payment hides among decoys, and a decoy that moves puts the wallet in a protected state until both parties authorize. Interactive simulation.">
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1c1b19; --muted: #66645e; --line: #e2dfd7;
+    --accent: #2457d6; --accent-ink: #ffffff;
+    --ok: #1b6e41; --ok-bg: #e4f3ea; --bad: #a8271f; --bad-bg: #fbe8e5;
+    --warn: #7d5200; --warn-bg: #fdf1d2; --info-bg: #eef1f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #13120f; --card: #1c1b17; --ink: #ece9e1; --muted: #9d9a90; --line: #2f2d27;
+      --accent: #7fa3ff; --accent-ink: #0c1530;
+      --ok: #72d39b; --ok-bg: #12301f; --bad: #ff8f85; --bad-bg: #3b1916;
+      --warn: #f1c24d; --warn-bg: #3a2c0b; --info-bg: #1f2230;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 56px; display: grid; gap: 16px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  h3 { font-size: 0.78rem; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  p { margin: 0 0 8px; }
+  .lead { font-size: 1.05rem; max-width: 62ch; }
+  .tag { display: inline-block; font-size: 0.8rem; color: var(--muted); border: 1px solid var(--line);
+         border-radius: 999px; padding: 2px 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .note { color: var(--muted); font-size: 0.88rem; margin: 10px 0 0; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88rem; }
+
+  /* status */
+  .status { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; }
+  .badge { font-weight: 700; letter-spacing: 0.04em; padding: 8px 16px; border-radius: 10px; border: 2px solid; }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); border-color: var(--bad); }
+  dl { display: flex; flex-wrap: wrap; gap: 6px 24px; margin: 0; }
+  dl div { min-width: 120px; }
+  dt { font-size: 0.78rem; color: var(--muted); }
+  dd { margin: 0; font-weight: 600; }
+  #stateNote { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+  /* outputs */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--ink); padding: 6px 14px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  ul.outs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .out { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 16px; align-items: center;
+         border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .out .role { grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted); }
+  .out.real { border-color: var(--ok); background: var(--ok-bg); }
+  .out.decoy { border-style: dashed; }
+  .out.spent { opacity: 0.55; }
+  .out.spent .id { text-decoration: line-through; }
+
+  /* controls */
+  .groups { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+           border-radius: 8px; padding: 8px 12px; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.danger { border-color: var(--bad); color: var(--bad); }
+  .settings { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: end; }
+  .settings label { display: grid; gap: 2px; font-size: 0.82rem; color: var(--muted); }
+  .settings input { width: 76px; font: inherit; padding: 6px 8px; border: 1px solid var(--line);
+                    border-radius: 8px; background: var(--card); color: var(--ink); }
+
+  /* log */
+  ol.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 340px; overflow: auto; }
+  ol.log li { border-left: 4px solid var(--line); background: var(--info-bg); padding: 6px 10px; border-radius: 0 6px 6px 0;
+              font-size: 0.9rem; }
+  ol.log li .h { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; margin-right: 8px; font-size: 0.82rem; }
+  ol.log li.alarm { border-color: var(--bad); background: var(--bad-bg); }
+  ol.log li.ok { border-color: var(--ok); background: var(--ok-bg); }
+  ol.log li.warn { border-color: var(--warn); background: var(--warn-bg); }
+  ol.log li.block { background: transparent; color: var(--muted); }
+  .empty { color: var(--muted); }
+
+  ul.limits { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  details summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+  ol.tour { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  #odds strong { font-size: 1.1rem; }
+  @media (max-width: 520px) { h1 { font-size: 1.4rem; } .out { grid-template-columns: 1fr auto; } }
+  @media (prefers-reduced-motion: no-preference) { .badge { transition: background 0.2s, color 0.2s; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Decoy Canary Wallet</h1>
+    <p class="lead">One real payment hides among decoys. If a decoy moves when you did not move it, the wallet enters a <b>protected state</b> and stays there until both parties authorize.</p>
+    <span class="tag">Simulation: mock keys, no real network, no real Zcash</span>
+  </header>
+
+  <section class="card" aria-label="Try it">
+    <details open>
+      <summary>Try it in four steps</summary>
+      <ol class="tour">
+        <li>Press <b>Alice + Bob pay</b>. It works because both parties authorize.</li>
+        <li>Press <b>New wallet</b>, then <b>Thief sweeps what the stolen key can spend</b>. The thief takes the decoys, the alarm fires, the real output stays safe.</li>
+        <li>Try <b>Alice + Bob pay</b>: blocked. Try <b>Unlock: Alice only</b>: rejected. Try <b>Unlock: Alice + Bob</b>: back to normal.</li>
+        <li>New wallet, sweep again, then <b>Mine +10 blocks</b> and <b>Release with recovery key</b> (the fallback if the receiver disappears).</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="card status" aria-live="polite">
+    <div id="badge" class="badge ok">NORMAL</div>
+    <dl>
+      <div><dt>Block height</dt><dd id="height">0</dd></div>
+      <div><dt>Recovery key opens at block</dt><dd id="unlockAt">10</dd></div>
+      <div><dt>Unauthorized decoy spends</dt><dd id="touched">0</dd></div>
+    </dl>
+    <p id="stateNote"></p>
+  </section>
+
+  <section class="card">
+    <h2>Outputs</h2>
+    <div class="seg" role="group" aria-label="View">
+      <button id="vObserver" aria-pressed="true">Observer view</button>
+      <button id="vOwner" aria-pressed="false">Owner view</button>
+    </div>
+    <ul id="outs" class="outs"></ul>
+    <p id="viewNote" class="note"></p>
+  </section>
+
+  <section class="card">
+    <h2>Play</h2>
+    <div class="groups">
+      <div><h3>Payment</h3>
+        <div class="btns"><button id="bPay" class="primary">Alice + Bob pay</button></div></div>
+      <div><h3>Attacker</h3>
+        <div class="btns">
+          <button id="bSweep" class="danger">Thief sweeps what the stolen key can spend</button>
+          <button id="bNaive" class="danger">Careless thief: every note in one transaction</button>
+          <button id="bTouch" class="danger">Thief touches one output</button>
+        </div>
+        <p class="note">The thief holds Alice's stolen key only, not Bob's.</p></div>
+      <div><h3>Recovery</h3>
+        <div class="btns">
+          <button id="bUnlockA">Unlock: Alice only</button>
+          <button id="bUnlockAB">Unlock: Alice + Bob</button>
+          <button id="bMine1">Mine +1 block</button>
+          <button id="bMine10">Mine +10 blocks</button>
+          <button id="bRecover">Release with recovery key</button>
+        </div></div>
+      <div><h3>Setup</h3>
+        <div class="settings">
+          <label>Decoys (n)<input id="n" type="number" min="1" max="20" value="3"></label>
+          <label>Protected after (k)<input id="k" type="number" min="1" max="20" value="1"></label>
+          <label>Timelock (blocks)<input id="t" type="number" min="1" max="100" value="10"></label>
+          <button id="bNew">New wallet</button>
+        </div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Event log</h2>
+    <ol id="log" class="log"></ol>
+  </section>
+
+  <section class="card">
+    <h2>Attack odds</h2>
+    <p id="odds"></p>
+    <p class="note">A model, not a guarantee: it assumes the attacker cannot tell the outputs apart and touches them in random order. Against a thief who sweeps everything, what protects the real funds is the two-party rule, not the odds.</p>
+    <div class="btns" style="margin-top:10px"><button id="bSim">Run 2000 simulated blind attackers</button></div>
+    <p id="simOut" class="note"></p>
+  </section>
+
+  <section class="card">
+    <h2>Honest limits</h2>
+    <ul class="limits">
+      <li><b>This is a simulation.</b> Keys are mock strings. There is no real cryptography and no connection to Zcash.</li>
+      <li><b>The protected state is client-side.</b> It stops this wallet from signing. It does not stop someone who holds the keys from spending on the ledger. The decoys are the alarm; the two-party rule protects the real funds.</li>
+      <li><b>Bait costs real value.</b> Decoys hold a small amount (0.1% of the payment, above the fee) that outsiders cannot see. A thief holding the key can read amounts, and keeps any decoy they sweep.</li>
+      <li><b>Attackers who control the wallet</b> can learn which output is real, and then the decoys no longer help.</li>
+      <li><b>The recovery key is a single point of trust.</b> Once the timelock opens it works even while the wallet is protected, because it is the way out if the receiver disappears. Keep it separate from everyday keys. The timeout is a trade-off between weaker protection and stuck funds.</li>
+      <li><b>The alarm is early warning, not prevention.</b> By then a decoy is already gone. The two-party rule on the real output is what protects the real funds.</li>
+      <li><b>The shielded model is simulated.</b> Hidden amounts only means the outsider view leaves them out; there are no real commitments or proofs. As far as we know a shielded note cannot carry a timelock, so a real version would use a third key share. To be checked on testnet.</li>
+    </ul>
+  </section>
+</main>
+
+<script src="canary.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const seed = new URLSearchParams(location.search).get("seed");
+  const rng = seed !== null ? Canary.mulberry32(parseInt(seed, 10) || 0) : Math.random;
+  const ALICE = "alice-key", BOB = "bob-key", RECOVERY = "recovery-key";
+
+  let ledger, wallet, view = "observer", order = [];
+
+  function settings() {
+    const n = clamp(parseInt($("n").value, 10) || 3, 1, 20);
+    const k = clamp(parseInt($("k").value, 10) || 1, 1, n);
+    const t = clamp(parseInt($("t").value, 10) || 10, 1, 100);
+    $("n").value = n; $("k").value = k; $("t").value = t;
+    return { n, k, t };
+  }
+
+  function newWallet() {
+    const { n, k, t } = settings();
+    ledger = new Canary.Ledger();
+    order = [];
+    wallet = new Canary.CanaryWallet(ledger, { name: "alice", nDecoys: n, k, timeoutBlocks: t, rng });
+    wallet._log("info", `new wallet: 1 real output + ${n} decoys; protected state after ${k} unauthorized decoy spend(s); recovery key opens after ${t} blocks`);
+    render();
+  }
+
+  const unspentIds = () => Object.keys(ledger.outputs).filter((id) => !ledger.outputs[id].spent);
+
+  function renderOutputs() {
+    Object.keys(ledger.outputs).forEach((id) => {
+      if (!order.includes(id)) order.splice(Math.floor(rng() * (order.length + 1)), 0, id);
+    });
+    const ul = $("outs");
+    ul.innerHTML = "";
+    order.forEach((id) => {
+      const o = ledger.outputs[id];
+      const isReal = id === wallet.realId;
+      const li = document.createElement("li");
+      li.className = "out" + (o.spent ? " spent" : "") + (view === "owner" ? (isReal ? " real" : " decoy") : "");
+      const role = view === "owner"
+        ? (isReal ? "REAL payment output: needs Alice + Bob, or the recovery key after the timelock"
+                  : "Decoy: spendable with Alice's key only")
+        : "";
+      li.innerHTML =
+        `<span class="mono id">${id}</span><span>${view === "owner" ? o.value + " units" : "amount hidden"}</span><span>${o.spent ? "spent" : "unspent"}</span>` +
+        (role ? `<span class="role">${role}</span>` : "");
+      ul.appendChild(li);
+    });
+    $("viewNote").textContent = view === "observer"
+      ? "What an outsider sees: opaque ids in random order. Amounts are hidden and nothing is marked."
+      : "What only the owner (or a thief holding the key) can read: amounts, and which note is real.";
+  }
+
+  function renderLog() {
+    const ol = $("log");
+    ol.innerHTML = "";
+    wallet.events.slice().reverse().forEach((ev) => {
+      const li = document.createElement("li");
+      li.className = ev.kind;
+      const h = document.createElement("span");
+      h.className = "h";
+      h.textContent = `block ${ev.height}`;
+      li.appendChild(h);
+      li.appendChild(document.createTextNode(ev.text));
+      ol.appendChild(li);
+    });
+  }
+
+  function render() {
+    const protectedNow = wallet.state === Canary.PROTECTED;
+    const realSpent = ledger.outputs[wallet.realId].spent;
+    $("badge").textContent = protectedNow ? "PROTECTED STATE" : "NORMAL";
+    $("badge").className = "badge " + (protectedNow ? "bad" : "ok");
+    $("height").textContent = ledger.height;
+    $("unlockAt").textContent = wallet.unlockHeight + (ledger.height >= wallet.unlockHeight ? " (open)" : "");
+    $("touched").textContent = `${wallet.touched.length} (protected at ${wallet.k})`;
+    $("stateNote").textContent = protectedNow
+      ? "This wallet will not sign payments. It needs authorization from both Alice and Bob to resume."
+      : realSpent
+        ? (wallet.receipts.length
+          ? `Receipt: ${wallet.receipts[0].to.replace("-key","")} received ${wallet.receipts[0].amount} units, confirmed at block ${wallet.receipts[0].block}. Press New wallet to start again.`
+          : "The real note has left the wallet (recovery key). Press New wallet to start again.")
+        : "Payments need both Alice and Bob. A decoy spent by someone else switches on the protected state.";
+    $("bPay").disabled = realSpent;
+    $("bRecover").disabled = realSpent;
+    $("bUnlockA").disabled = $("bUnlockAB").disabled = !protectedNow;
+    $("bSweep").disabled = $("bNaive").disabled = $("bTouch").disabled = unspentIds().length === 0;
+    $("odds").innerHTML =
+      `Chance a blind attacker reaches the real output before the protected state: ` +
+      `<strong>k / (n + 1) = ${wallet.k} / ${wallet.n + 1} = ${(100 * wallet.k / (wallet.n + 1)).toFixed(1)}%</strong>`;
+    renderOutputs();
+    renderLog();
+  }
+
+  $("vObserver").onclick = () => { view = "observer"; $("vObserver").setAttribute("aria-pressed", "true"); $("vOwner").setAttribute("aria-pressed", "false"); renderOutputs(); };
+  $("vOwner").onclick = () => { view = "owner"; $("vOwner").setAttribute("aria-pressed", "true"); $("vObserver").setAttribute("aria-pressed", "false"); renderOutputs(); };
+
+  $("bPay").onclick = () => { wallet.pay(ALICE, BOB); render(); };
+
+  $("bSweep").onclick = () => {
+    const targets = wallet.outputIds();
+    const realTargeted = targets.includes(wallet.realId);
+    const res = Canary.sweepAttack(ledger, [ALICE], targets);
+    const taken = Object.values(res).filter(Boolean).length;
+    wallet._log("info",
+      `thief swept ${targets.length} output(s) with Alice's stolen key: ${taken} taken` +
+      (realTargeted && !res[wallet.realId] ? "; the real output stayed safe because it needs both keys" : ""));
+    render();
+  };
+
+  $("bNaive").onclick = () => {
+    const targets = wallet.outputIds();
+    const res = Canary.naiveSweep(ledger, [ALICE], targets);
+    wallet._log(Object.values(res).some(Boolean) ? "info" : "warn",
+      `careless thief put ${targets.length} notes in one transaction: ` +
+      (Object.values(res).some(Boolean) ? "accepted" : "INVALID, the real note needs both keys, so nothing moved and no alarm fired"));
+    render();
+  };
+
+  $("bTouch").onclick = () => {
+    const ids = unspentIds();
+    const id = ids[Math.floor(rng() * ids.length)];
+    const ok = ledger.spend(id, [ALICE]);
+    wallet._log(ok ? "info" : "warn", ok ? `thief spent output ${id}` : `thief tried output ${id}: FAILED, it needs both keys`);
+    render();
+  };
+
+  $("bUnlockA").onclick = () => { wallet.unlock(ALICE, null); render(); };
+  $("bUnlockAB").onclick = () => { wallet.unlock(ALICE, BOB); render(); };
+  const mine = (b) => { ledger.mine(b); wallet._log("block", `mined ${b} block(s); height is now ${ledger.height}`); render(); };
+  $("bMine1").onclick = () => mine(1);
+  $("bMine10").onclick = () => mine(10);
+  $("bRecover").onclick = () => { wallet.recoverWithKey(RECOVERY); render(); };
+  $("bNew").onclick = newWallet;
+
+  $("bSim").onclick = () => {
+    const trials = 2000;
+    let hits = 0;
+    for (let i = 0; i < trials; i++) hits += Canary.blindAttackTrial(wallet.n, wallet.k, rng) ? 1 : 0;
+    $("simOut").textContent =
+      `${trials} simulated blind attackers: ${(100 * hits / trials).toFixed(1)}% reached the real output first ` +
+      `(formula: ${(100 * wallet.k / (wallet.n + 1)).toFixed(1)}%).`;
+  };
+
+  newWallet();
+})();
+</script>
+</body>
+</html>
