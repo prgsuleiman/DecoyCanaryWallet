@@ -137,7 +137,11 @@
     <h2>Play</h2>
     <div class="groups">
       <div><h3>Payment</h3>
-        <div class="btns"><button id="bPay" class="primary">Alice + Bob pay</button></div></div>
+        <div class="settings">
+          <label>Amount to send<input id="payAmt" type="number" min="0" step="any" placeholder="whole note" style="width:110px"></label>
+          <button id="bPay" class="primary">Alice + Bob pay</button>
+        </div>
+        <p class="note">The network fee is taken out of the amount you send, so Bob receives the amount minus the fee. Leave it empty to send the whole real note. Anything left comes back to Alice as change.</p></div>
       <div><h3>Attacker</h3>
         <div class="btns">
           <button id="bSweep" class="danger">Thief sweeps what the stolen key can spend</button>
@@ -158,14 +162,34 @@
           <label>Decoys (n)<input id="n" type="number" min="1" max="20" value="3"></label>
           <label>Protected after (k)<input id="k" type="number" min="1" max="20" value="1"></label>
           <label>Timelock (blocks)<input id="t" type="number" min="1" max="100" value="10"></label>
+          <label>Real note<input id="amt" type="number" min="0" step="any" value="100" style="width:90px"></label>
+          <label>Decoy value<input id="dv" type="number" min="0" step="any" placeholder="auto" style="width:90px"></label>
+          <label>Network fee<input id="fee" type="number" min="0" step="any" value="0.0001" style="width:90px"></label>
           <button id="bNew">New wallet</button>
-        </div></div>
+        </div>
+        <p class="note">Decoy value: leave empty for automatic (0.1% of the real note, never below 10 times the fee), or set your own. It must be above the fee, or sweep tools skip the decoy and the alarm never fires.</p>
+        <p id="setupErr" class="note"></p></div>
     </div>
   </section>
 
   <section class="card">
     <h2>Event log</h2>
     <ol id="log" class="log"></ol>
+  </section>
+
+  <section class="card" id="plan">
+    <h2>Protect a payment: plan the decoys</h2>
+    <p class="note" style="margin-top:0">Type the amount you want to send. The network fee comes out of it, so the receiver gets a little less. Set your own decoy value, or leave it on auto, and see how many decoys to make and what they cost. <b>This only plans. It does not send money or connect to a wallet.</b> Amounts are in ZEC; the default fee is the one measured on Zcash testnet.</p>
+    <div class="settings" style="margin-top:12px">
+      <label>Payment<input id="pAmount" type="number" min="0" step="any" value="0.05" style="width:100px"></label>
+      <label>Decoys<input id="pN" type="number" min="1" max="20" step="1" value="3"></label>
+      <label>Network fee<input id="pFee" type="number" min="0" step="any" value="0.0001" style="width:100px"></label>
+      <label>Decoy value<input id="pDv" type="number" min="0" step="any" placeholder="auto" style="width:100px"></label>
+      <label>Your balance (optional)<input id="pBal" type="number" min="0" step="any" value="0.125" style="width:100px"></label>
+    </div>
+    <p id="pSummary" style="margin-top:12px"></p>
+    <ol id="pSteps" class="tour"></ol>
+    <p id="pErr" class="note"></p>
   </section>
 
   <section class="card">
@@ -206,15 +230,28 @@
     const k = clamp(parseInt($("k").value, 10) || 1, 1, n);
     const t = clamp(parseInt($("t").value, 10) || 10, 1, 100);
     $("n").value = n; $("k").value = k; $("t").value = t;
-    return { n, k, t };
+    const num = (id, fallback) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : fallback; };
+    const amount = num("amt", 100);
+    const fee = num("fee", 0.0001);
+    const dvRaw = $("dv").value.trim();
+    const decoyValue = dvRaw === "" ? null : parseFloat(dvRaw);
+    return { n, k, t, amount, fee, decoyValue };
   }
 
   function newWallet() {
-    const { n, k, t } = settings();
-    ledger = new Canary.Ledger();
-    order = [];
-    wallet = new Canary.CanaryWallet(ledger, { name: "alice", nDecoys: n, k, timeoutBlocks: t, rng });
-    wallet._log("info", `new wallet: 1 real output + ${n} decoys; protected state after ${k} unauthorized decoy spend(s); recovery key opens after ${t} blocks`);
+    const { n, k, t, amount, fee, decoyValue } = settings();
+    const nextLedger = new Canary.Ledger();
+    let next;
+    try {
+      next = new Canary.CanaryWallet(nextLedger, { name: "alice", nDecoys: n, k, timeoutBlocks: t, amount, fee, decoyValue, rng });
+    } catch (e) {
+      $("setupErr").textContent = "Check the setup: " + e.message + ". The previous wallet is unchanged.";
+      return;
+    }
+    $("setupErr").textContent = "";
+    ledger = nextLedger; wallet = next; order = [];
+    const f = Canary.fmtZec;
+    wallet._log("info", `new wallet: 1 real note of ${f(amount)} + ${n} decoys of ${f(wallet.decoyValue)} each; fee ${f(fee)}; protected state after ${k} unauthorized decoy spend(s); recovery key opens after ${t} blocks`);
     render();
   }
 
@@ -236,7 +273,7 @@
                   : "Decoy: spendable with Alice's key only")
         : "";
       li.innerHTML =
-        `<span class="mono id">${id}</span><span>${view === "owner" ? o.value + " units" : "amount hidden"}</span><span>${o.spent ? "spent" : "unspent"}</span>` +
+        `<span class="mono id">${id}</span><span>${view === "owner" ? Canary.fmtZec(o.value) + " units" : "amount hidden"}</span><span>${o.spent ? "spent" : "unspent"}</span>` +
         (role ? `<span class="role">${role}</span>` : "");
       ul.appendChild(li);
     });
@@ -272,7 +309,7 @@
       ? "This wallet will not sign payments. It needs authorization from both Alice and Bob to resume."
       : realSpent
         ? (wallet.receipts.length
-          ? `Receipt: ${wallet.receipts[0].to.replace("-key","")} received ${wallet.receipts[0].amount} units, confirmed at block ${wallet.receipts[0].block}. Press New wallet to start again.`
+          ? `Receipt: ${wallet.receipts[0].to.replace("-key","")} received ${Canary.fmtZec(wallet.receipts[0].amount)} units (fee ${Canary.fmtZec(wallet.receipts[0].fee)} taken from the amount, change ${Canary.fmtZec(wallet.receipts[0].change)} back to Alice), confirmed at block ${wallet.receipts[0].block}. Press New wallet to start again.`
           : "The real note has left the wallet (recovery key). Press New wallet to start again.")
         : "Payments need both Alice and Bob. A decoy spent by someone else switches on the protected state.";
     $("bPay").disabled = realSpent;
@@ -289,7 +326,11 @@
   $("vObserver").onclick = () => { view = "observer"; $("vObserver").setAttribute("aria-pressed", "true"); $("vOwner").setAttribute("aria-pressed", "false"); renderOutputs(); };
   $("vOwner").onclick = () => { view = "owner"; $("vOwner").setAttribute("aria-pressed", "true"); $("vObserver").setAttribute("aria-pressed", "false"); renderOutputs(); };
 
-  $("bPay").onclick = () => { wallet.pay(ALICE, BOB); render(); };
+  $("bPay").onclick = () => {
+    const raw = $("payAmt").value.trim();
+    wallet.pay(ALICE, BOB, raw === "" ? wallet.amount : parseFloat(raw));
+    render();
+  };
 
   $("bSweep").onclick = () => {
     const targets = wallet.outputIds();
@@ -337,6 +378,36 @@
   };
 
   newWallet();
+  // ---- planner (calculates only) ----
+  function renderPlan() {
+    const amount = parseFloat($("pAmount").value);
+    const n = parseInt($("pN").value, 10);
+    const fee = parseFloat($("pFee").value);
+    const balRaw = $("pBal").value.trim();
+    const balance = balRaw === "" ? null : parseFloat(balRaw);
+    const dvRaw = $("pDv").value.trim();
+    const decoyValue = dvRaw === "" ? null : parseFloat(dvRaw);
+    const sum = $("pSummary"), steps = $("pSteps"), err = $("pErr");
+    steps.innerHTML = ""; sum.textContent = ""; err.textContent = "";
+    try {
+      if (balance !== null && !(balance >= 0)) throw new Error("balance must be zero or more");
+      if (decoyValue !== null && Number.isNaN(decoyValue)) throw new Error("decoy value must be a number");
+      const p = Canary.planProtection(amount, n, { fee, balance, decoyValue });
+      const f = Canary.fmtZec;
+      let text = `The receiver gets ${f(p.receiverGets)} ZEC (the ${f(p.fee)} fee comes out of the payment). Each decoy: ${f(p.decoyValue)} ZEC` +
+        (p.customDecoy ? " (your value)" : p.floorApplied ? " (the fee floor applies: 10 times the fee, because 0.1% of this payment would be too small)" : " (0.1% of the payment)") +
+        `. ${p.nDecoys} decoys hold ${f(p.lockedInDecoys)} ZEC, which stays yours unless a thief sweeps it, and cost ${f(p.decoyFees)} ZEC in fees. ` +
+        `Total fees: ${f(p.feesPaid)} ZEC. Total needed in the account: ${f(p.totalNeeded)} ZEC.`;
+      if (p.covered === true) text += " Your balance covers it.";
+      if (p.covered === false) text += ` Your balance is short by ${f(p.shortfall)} ZEC.`;
+      sum.textContent = text;
+      p.steps.forEach((s) => { const li = document.createElement("li"); li.textContent = s; steps.appendChild(li); });
+    } catch (e) {
+      err.textContent = "Check the numbers: " + e.message + ".";
+    }
+  }
+  ["pAmount", "pN", "pFee", "pDv", "pBal"].forEach((id) => $(id).addEventListener("input", renderPlan));
+  renderPlan();
 })();
 </script>
 </body>

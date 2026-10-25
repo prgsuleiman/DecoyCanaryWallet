@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
-  NORMAL, PROTECTED, MIN_DECOY, Ledger, CanaryWallet, sweepAttack, naiveSweep, blindAttackTrial, mulberry32,
+  NORMAL, PROTECTED, MIN_DECOY, Ledger, CanaryWallet, planProtection, sweepAttack, naiveSweep, blindAttackTrial, mulberry32,
 } = require("./canary.js");
 
 const STOLEN = ["alice-key"]; // a thief who has stolen the sender's key only
@@ -28,8 +28,75 @@ test("receiver gets a receipt only when the payment goes through", () => {
   assert.deepStrictEqual(w.receipts, []);
   const [l2, w2] = make();
   w2.pay("alice-key", "bob-key");
-  assert.deepStrictEqual(w2.receipts, [{ to: "bob-key", amount: 100, block: 0 }]);
-  assert.match(w2.events.at(-1).text, /bob-key received 100/);
+  assert.deepStrictEqual(w2.receipts, [{ to: "bob-key", amount: 99.9999, fee: 0.0001, change: 0, block: 0 }]);
+  assert.match(w2.events.at(-1).text, /bob-key received 99\.9999/);
+});
+
+test("sender and receiver choose the amount, and the fee comes out of it", () => {
+  const [, w] = make({ amount: 0.05 });
+  assert.ok(w.pay("alice-key", "bob-key", 0.02));
+  const r = w.receipts[0];
+  assert.ok(Math.abs(r.amount - 0.0199) < 1e-12);
+  assert.ok(Math.abs(r.change - 0.03) < 1e-12);
+  assert.ok(Math.abs(r.amount + r.fee + r.change - 0.05) < 1e-12);
+});
+
+test("bad payment amounts are rejected and nothing moves", () => {
+  const [ledger, w] = make({ amount: 0.05 });
+  for (const bad of [0, -1, 0.0001, 0.00005, 0.06]) assert.ok(!w.pay("alice-key", "bob-key", bad), String(bad));
+  assert.ok(!ledger.outputs[w.realId].spent);
+  assert.deepStrictEqual(w.receipts, []);
+  assert.ok(w.pay("alice-key", "bob-key", 0.05));
+});
+
+test("decoy value can be set but must beat the fee", () => {
+  const w = new CanaryWallet(new Ledger(), { decoyValue: 0.5, rng: mulberry32(1) });
+  assert.ok(w.ownerView().filter((r) => !r.isReal).every((r) => r.value === 0.5));
+  for (const bad of [0.0001, 0.00005, 0])
+    assert.throws(() => new CanaryWallet(new Ledger(), { decoyValue: bad, fee: 0.0001, rng: mulberry32(1) }));
+  assert.throws(() => new CanaryWallet(new Ledger(), { fee: 0, rng: mulberry32(1) }));
+});
+
+test("planner: a small payment uses the fee floor, the fee comes out of the payment", () => {
+  const p = planProtection(0.05, 3, { fee: 0.0001 });
+  assert.ok(Math.abs(p.decoyValue - 0.001) < 1e-12);
+  assert.ok(p.floorApplied);
+  assert.ok(Math.abs(p.lockedInDecoys - 0.003) < 1e-12);
+  assert.ok(Math.abs(p.feesPaid - 0.0004) < 1e-12);
+  assert.ok(Math.abs(p.totalNeeded - 0.0533) < 1e-12);
+  assert.ok(Math.abs(p.receiverGets - 0.0499) < 1e-12);
+});
+
+test("planner: a large payment uses the fraction; automatic decoys stay above the fee", () => {
+  assert.ok(Math.abs(planProtection(100, 3).decoyValue - 0.1) < 1e-12);
+  for (const amount of [0.05, 1, 100])
+    for (const fee of [0.00001, 0.0001, 0.001])
+      assert.ok(planProtection(amount, 3, { fee }).decoyValue > fee);
+});
+
+test("planner: the owner can set the decoy value, but not at or below the fee", () => {
+  const p = planProtection(0.05, 2, { decoyValue: 0.002 });
+  assert.ok(Math.abs(p.decoyValue - 0.002) < 1e-12 && p.customDecoy && !p.floorApplied);
+  assert.ok(Math.abs(p.lockedInDecoys - 0.004) < 1e-12);
+  assert.match(p.steps[0], /0\.002/);
+  for (const decoyValue of [0.0001, 0.00005, 0]) assert.throws(() => planProtection(0.05, 3, { decoyValue }));
+});
+
+test("planner: balance check and steps", () => {
+  assert.ok(planProtection(0.05, 3, { balance: 0.125 }).covered);
+  const short = planProtection(0.05, 3, { balance: 0.05 });
+  assert.ok(!short.covered && Math.abs(short.shortfall - 0.0033) < 1e-12);
+  assert.ok(!("covered" in planProtection(0.05)));
+  const p = planProtection(0.05, 2);
+  assert.strictEqual(p.steps.length, 4);
+  assert.match(p.steps[0], /0\.001/);
+  assert.match(p.steps.at(-1), /0\.05/);
+  assert.match(p.steps.at(-1), /0\.0499/);
+});
+
+test("planner: bad input is rejected", () => {
+  for (const args of [[0], [-1], [1, 0], [1, 2.5], [1, 3, { fee: 0 }], [0.0001, 3, { fee: 0.0001 }], [0.00005]])
+    assert.throws(() => planProtection(...args));
 });
 
 test("payment needs both parties", () => {

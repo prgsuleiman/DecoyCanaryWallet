@@ -9,6 +9,7 @@
   const NORMAL = "NORMAL";
   const PROTECTED = "PROTECTED";
   const DEFAULT_AMOUNT = 100;
+  const DEFAULT_FEE = 0.0001; // network fee measured on Zcash testnet
   const DECOY_FRACTION = 0.001; // each decoy holds 0.1% of the payment...
   const MIN_DECOY = 0.001; // ...but never less; must stay above the network fee
 
@@ -82,12 +83,15 @@
           timeoutBlocks: 10,
           amount: DEFAULT_AMOUNT,
           decoyValue: null,
+          fee: DEFAULT_FEE,
           rng: Math.random,
           onLog: null,
         },
         opts
       );
       if (!(o.k >= 1 && o.k <= o.nDecoys)) throw new Error("need 1 <= k <= nDecoys");
+      if (!(o.amount > 0 && o.fee > 0)) throw new Error("amount and fee must be positive");
+      if (o.decoyValue !== null && !(o.decoyValue > o.fee)) throw new Error("decoy value must be above the network fee");
       this.ledger = ledger;
       this.name = o.name;
       this.sender = o.sender;
@@ -96,12 +100,13 @@
       this.n = o.nDecoys;
       this.k = o.k;
       this.timeoutBlocks = o.timeoutBlocks;
-      this.amount = o.amount;
+      this.amount = o.amount; // value of the real note
+      this.fee = o.fee;
       this.rng = o.rng;
       this.onLog = o.onLog;
       // Small but real, and above the fee so sweep tools do not skip the decoys.
       this.decoyValue =
-        o.decoyValue === null ? Math.max(o.amount * DECOY_FRACTION, MIN_DECOY) : o.decoyValue;
+        o.decoyValue === null ? Math.max(o.amount * DECOY_FRACTION, MIN_DECOY, o.fee * 10) : o.decoyValue;
       this.state = NORMAL;
       this.touched = []; // decoys spent without this wallet's authorization
       this.ownSpends = new Set(); // decoys this wallet spent itself: never an alarm
@@ -193,7 +198,9 @@
       return this.realId; // coin selection only ever picks the real note
     }
 
-    pay(senderAuth, receiverAuth) {
+    /** Pay `amount` (default: the whole real note). The fee is taken out of the amount, so the
+     *  receiver gets amount - fee; anything left in the note returns to the sender as change. */
+    pay(senderAuth, receiverAuth, amount = this.amount) {
       if (this.state === PROTECTED) {
         this._log("warn", "payment BLOCKED: wallet is in the protected state");
         return false;
@@ -202,10 +209,16 @@
         this._log("warn", "payment REJECTED: the real note is already spent");
         return false;
       }
+      if (!(amount > this.fee && amount <= this.amount)) {
+        this._log("warn", `payment REJECTED: the amount must be more than the fee (${fmtZec(this.fee)}) and at most the real note (${fmtZec(this.amount)})`);
+        return false;
+      }
       const ok = this.ledger.spend(this.selectCoin(), [senderAuth, receiverAuth]);
       if (ok) {
-        this.receipts.push({ to: this.receiver, amount: this.amount, block: this.ledger.height });
-        this._log("ok", `payment sent: ${this.receiver} received ${this.amount} (confirmed at block ${this.ledger.height})`);
+        const received = Math.round((amount - this.fee) * 1e8) / 1e8;
+        const change = Math.round((this.amount - amount) * 1e8) / 1e8;
+        this.receipts.push({ to: this.receiver, amount: received, fee: this.fee, change, block: this.ledger.height });
+        this._log("ok", `payment sent: ${this.receiver} received ${fmtZec(received)} (fee ${fmtZec(this.fee)} taken from the amount; change ${fmtZec(change)} returned to sender; confirmed at block ${this.ledger.height})`);
       } else {
         this._log("warn", "payment REJECTED: needs both parties");
       }
@@ -248,6 +261,45 @@
     }
   }
 
+  function fmtZec(x) {
+    return x.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  /** Plan how to protect ONE payment with decoys. It only calculates; it sends nothing.
+   *  The fee comes out of the payment (the receiver gets amount - fee), as in the wallet.
+   *  Each decoy is `fraction` of the payment but never less than feeMultiple x the fee,
+   *  unless the owner sets decoyValue, which must still be above the fee. */
+  function planProtection(amount, nDecoys = 3, opts = {}) {
+    const o = Object.assign({ fee: DEFAULT_FEE, balance: null, fraction: DECOY_FRACTION, feeMultiple: 10, decoyValue: null }, opts);
+    if (!(amount > 0 && o.fee > 0 && o.fraction >= 0 && o.feeMultiple >= 1))
+      throw new Error("amount and fee must be positive");
+    if (!(amount > o.fee)) throw new Error("the payment must be more than the fee");
+    if (!(Number.isInteger(nDecoys) && nDecoys >= 1)) throw new Error("nDecoys must be a whole number of at least 1");
+    if (o.decoyValue !== null && !(o.decoyValue > o.fee)) throw new Error("decoy value must be above the fee");
+    const r8 = (x) => Math.round(x * 1e8) / 1e8;
+    const custom = o.decoyValue !== null;
+    const decoy = r8(custom ? o.decoyValue : Math.max(amount * o.fraction, o.fee * o.feeMultiple));
+    const locked = r8(nDecoys * decoy);
+    const decoyFees = r8(nDecoys * o.fee);
+    const plan = {
+      amount, nDecoys, fee: o.fee, decoyValue: decoy, customDecoy: custom,
+      floorApplied: !custom && amount * o.fraction < o.fee * o.feeMultiple,
+      receiverGets: r8(amount - o.fee), lockedInDecoys: locked, decoyFees,
+      feesPaid: r8(o.fee + decoyFees), decoyCost: r8(locked + decoyFees),
+      totalNeeded: r8(amount + locked + decoyFees),
+    };
+    if (o.balance !== null) {
+      plan.covered = o.balance >= plan.totalNeeded;
+      plan.shortfall = r8(Math.max(0, plan.totalNeeded - o.balance));
+    }
+    plan.steps = [];
+    for (let i = 1; i <= nDecoys; i++)
+      plan.steps.push(`Send ${fmtZec(decoy)} to your own address in the shielded account (decoy ${i} of ${nDecoys}). Wait until it confirms before the next one.`);
+    plan.steps.push(`Keep at least ${fmtZec(amount)} in the account: that is the real note.`);
+    plan.steps.push(`Send the real payment of ${fmtZec(amount)} with both parties' approval. The fee (${fmtZec(o.fee)}) comes out of it, so the receiver gets ${fmtZec(amount - o.fee)}.`);
+    return plan;
+  }
+
   /** A thief sweeps the way a real sweep tool does: only the notes the stolen keys
    *  can spend, sent in ONE transaction. */
   function sweepAttack(ledger, stolenKeys, targets) {
@@ -283,7 +335,7 @@
   }
 
   return {
-    NORMAL, PROTECTED, DEFAULT_AMOUNT, DECOY_FRACTION, MIN_DECOY,
-    Ledger, CanaryWallet, sweepAttack, naiveSweep, blindAttackTrial, mulberry32, shuffle,
+    NORMAL, PROTECTED, DEFAULT_AMOUNT, DEFAULT_FEE, DECOY_FRACTION, MIN_DECOY,
+    Ledger, CanaryWallet, planProtection, fmtZec, sweepAttack, naiveSweep, blindAttackTrial, mulberry32, shuffle,
   };
 });

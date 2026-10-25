@@ -8,7 +8,8 @@ A tripwire for wallet compromise. One real payment output hides among decoy outp
 
 - **In the browser:** open `index.html`. Add `?seed=7` to the address for a repeatable run.
 - **In the terminal:** `python3 demo.py` plays the whole story: a normal payment, a thief sweeping every output, the protected state, the two-party unlock, the timelocked recovery key, and the attack odds measured on the real code.
-- **Tests:** `python3 -m unittest test_decoy_canary` (29 tests) and `node --test` (21 tests, the browser logic).
+- **Tests:** `python3 -m unittest test_decoy_canary` (42 tests) and `node --test` (29 tests, the browser logic).
+- **Decoy planner:** the page has a "Protect a payment" section. Enter the amount you want to send. The network fee comes out of it, so the receiver gets amount minus fee. You can set the decoy value yourself (it must stay above the fee) or leave it on auto. The page shows the decoy size, the fees, what stays locked in decoys and a checklist. It only plans: it sends nothing and connects to no wallet.
 
 No dependencies. Python 3.8+, and Node 18+ for the JavaScript tests.
 
@@ -63,10 +64,10 @@ This project combines the idea with a wallet: decoys among real outputs, a prote
 | File | Purpose |
 | --- | --- |
 | `decoy_canary.py` | Ledger, wallet, monitor, attacks (Python) |
-| `test_decoy_canary.py` | 29 tests |
+| `test_decoy_canary.py` | 42 tests |
 | `demo.py` | One command plays the whole story |
 | `canary.js` | The same logic in JavaScript |
-| `canary.test.js` | 21 tests for the JavaScript logic |
+| `canary.test.js` | 29 tests for the JavaScript logic |
 | `index.html` | Interactive browser demo |
 | `TESTNET.md` | Optional plan for a Zcash testnet check |
 
@@ -78,6 +79,15 @@ All code in this repository was written during the Zecathon 2026 build window, w
 
 MIT, see `LICENSE`.
 
+## Use it in your wallet
+
+The decoy and alarm logic is small and has no dependencies. A wallet could call it like this:
+
+- `plan_protection(amount, n_decoys, fee, balance)` (Python) / `planProtection(amount, nDecoys, {fee, balance})` (JavaScript): the fee comes out of the payment, so the receiver gets amount minus fee. It returns the decoy size (0.1% of the payment, never below 10 times the network fee, or your own value if it is above the fee), the fees, the value held in decoys, whether the balance covers it, and the steps. It only calculates.
+- `CanaryWallet(..., amount, fee, decoy_value)` and its monitor: `pay(sender, receiver, amount)` takes the fee out of the amount, returns any change to the sender and gives the receiver a receipt; the alarm and protected-state logic, run against the simulated ledger.
+
+Pass the real minimum fee of your network. Testnet measured 0.0001 ZEC.
+
 ## Zcash mapping (plan, not built)
 
 Based on the public ZIP index; none of this is implemented or tested yet.
@@ -85,11 +95,13 @@ Based on the public ZIP index; none of this is implemented or tested yet.
 | Our piece | Zcash building block | Status in the ZIP index |
 | --- | --- | --- |
 | Decoys | Small shielded notes (must stay above the current minimum fee, see ZIPs 2002 and 2009) | n/a |
-| Alarm / watcher | Viewing keys and light-client payment detection: ZIP 316, ZIP 307 | Drafts |
+| Alarm / watcher | Viewing keys and light-client note scanning: ZIP 316, ZIP 307. Detecting a spend means watching for the note's nullifier, which we have not verified | Drafts |
 | Two-party rule on the real note | FROST spend authorization: ZIP 312, with partially created transactions: ZIP 374 | Drafts |
 | Timeout recovery | No shielded timelock found; a third key share is the likely replacement (ZIP 203 is transaction expiry, not a note lock) | Simulated here |
 
 Open question: which shielded pool to use on testnet (several ZIPs concern Orchard, see ZIP 326). Check before building.
+
+Testnet note: a first small payment (0.001 ZEC, fee 0.0001 ZEC) to a `utest1…` unified address confirmed in Brave Wallet. A unified address can hold shielded receivers, but the wallet does not show which pool a transfer used, so we do not claim the decoy notes are shielded until that is verified.
 
 ## Threat model
 

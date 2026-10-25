@@ -2,7 +2,7 @@ import random
 import unittest
 
 from decoy_canary import (MIN_DECOY, NORMAL, PROTECTED, CanaryWallet, Ledger,
-                          blind_attack_trial, naive_sweep, sweep_attack)
+                          blind_attack_trial, naive_sweep, plan_protection, sweep_attack)
 
 STOLEN = {"alice-key"}  # a thief who has stolen the sender's key only
 
@@ -23,8 +23,38 @@ class CoreBehaviour(unittest.TestCase):
         _, w = make()
         self.assertEqual(w.receipts, [])
         w.pay("alice-key", "bob-key")
-        self.assertEqual(w.receipts, [{"to": "bob-key", "amount": 100, "block": 0}])
-        self.assertIn("bob-key received 100", w.events[-1])
+        self.assertEqual(w.receipts, [{"to": "bob-key", "amount": 99.9999, "fee": 0.0001,
+                                       "change": 0, "block": 0}])
+        self.assertIn("bob-key received 99.9999", w.events[-1])
+
+    def test_sender_and_receiver_choose_the_amount_and_the_fee_comes_out_of_it(self):
+        _, w = make(amount=0.05)
+        self.assertTrue(w.pay("alice-key", "bob-key", amount=0.02))
+        r = w.receipts[0]
+        self.assertAlmostEqual(r["amount"], 0.0199)    # 0.02 minus the 0.0001 fee
+        self.assertAlmostEqual(r["change"], 0.03)      # the rest returns to the sender
+        self.assertAlmostEqual(r["amount"] + r["fee"] + r["change"], 0.05)
+
+    def test_bad_payment_amounts_are_rejected_and_nothing_moves(self):
+        ledger, w = make(amount=0.05)
+        for bad in (0, -1, 0.0001, 0.00005, 0.06):
+            self.assertFalse(w.pay("alice-key", "bob-key", amount=bad), bad)
+        self.assertFalse(ledger.outputs[w.real_id]["spent"])
+        self.assertEqual(w.receipts, [])
+        self.assertTrue(w.pay("alice-key", "bob-key", amount=0.05))   # the whole note is fine
+
+    def test_decoy_value_can_be_set_but_must_beat_the_fee(self):
+        w = CanaryWallet(Ledger(), decoy_value=0.5, rng=random.Random(1))
+        self.assertTrue(all(r["value"] == 0.5 for r in w.owner_view() if not r["is_real"]))
+        for bad in (0.0001, 0.00005, 0):
+            with self.assertRaises(ValueError):
+                CanaryWallet(Ledger(), decoy_value=bad, fee=0.0001, rng=random.Random(1))
+        with self.assertRaises(ValueError):
+            CanaryWallet(Ledger(), fee=0, rng=random.Random(1))
+
+    def test_default_decoy_scales_with_a_bigger_fee(self):
+        w = CanaryWallet(Ledger(), amount=100, fee=0.05, rng=random.Random(1))
+        self.assertGreater(w.decoy_value, 0.05)
 
     def test_failed_or_blocked_payment_gives_no_receipt(self):
         ledger, w = make()
@@ -134,6 +164,65 @@ class Views(unittest.TestCase):
             ids = sorted(w.output_ids())
             wins += ids.index(w.real_id) == 0   # real is the lowest id?
         self.assertLess(wins / 200, 0.4)        # ~25% by chance with 4 notes
+
+
+class Planner(unittest.TestCase):
+    def test_small_payment_uses_the_fee_floor(self):
+        p = plan_protection(0.05, n_decoys=3, fee=0.0001)
+        self.assertAlmostEqual(p["decoy_value"], 0.001)   # 10x the fee, not 0.1% of 0.05
+        self.assertTrue(p["floor_applied"])
+        self.assertAlmostEqual(p["locked_in_decoys"], 0.003)
+        self.assertAlmostEqual(p["decoy_fees"], 0.0003)
+        self.assertAlmostEqual(p["fees_paid"], 0.0004)
+        self.assertAlmostEqual(p["total_needed"], 0.0533)  # the payment fee is inside the 0.05
+        self.assertAlmostEqual(p["receiver_gets"], 0.0499)
+
+    def test_receiver_gets_amount_minus_fee(self):
+        self.assertAlmostEqual(plan_protection(1, fee=0.01)["receiver_gets"], 0.99)
+
+    def test_large_payment_uses_the_fraction(self):
+        p = plan_protection(100, n_decoys=3, fee=0.0001)
+        self.assertAlmostEqual(p["decoy_value"], 0.1)     # 0.1% of 100
+        self.assertFalse(p["floor_applied"])
+
+    def test_owner_can_set_the_decoy_value(self):
+        p = plan_protection(0.05, n_decoys=2, fee=0.0001, decoy_value=0.002)
+        self.assertAlmostEqual(p["decoy_value"], 0.002)
+        self.assertTrue(p["custom_decoy"])
+        self.assertFalse(p["floor_applied"])
+        self.assertAlmostEqual(p["locked_in_decoys"], 0.004)
+        self.assertIn("0.002", p["steps"][0])
+
+    def test_decoy_value_must_be_above_the_fee(self):
+        for dv in (0.0001, 0.00005, 0):
+            with self.assertRaises(ValueError):
+                plan_protection(0.05, fee=0.0001, decoy_value=dv)
+
+    def test_automatic_decoys_always_stay_above_the_fee(self):
+        for amount in (0.05, 1, 100):
+            for fee in (0.00001, 0.0001, 0.001):
+                self.assertGreater(plan_protection(amount, fee=fee)["decoy_value"], fee)
+
+    def test_balance_check(self):
+        self.assertTrue(plan_protection(0.05, balance=0.125)["covered"])
+        short = plan_protection(0.05, balance=0.05)
+        self.assertFalse(short["covered"])
+        self.assertAlmostEqual(short["shortfall"], 0.0033)
+        self.assertNotIn("covered", plan_protection(0.05))
+
+    def test_steps_list_every_decoy_then_the_real_payment(self):
+        p = plan_protection(0.05, n_decoys=2)
+        self.assertEqual(len(p["steps"]), 4)
+        self.assertIn("0.001", p["steps"][0])
+        self.assertIn("0.05", p["steps"][-1])
+        self.assertIn("0.0499", p["steps"][-1])
+
+    def test_bad_input_is_rejected(self):
+        for kw in ({"amount": 0}, {"amount": -1}, {"amount": 1, "fee": 0},
+                   {"amount": 0.0001, "fee": 0.0001}, {"amount": 0.00005, "fee": 0.0001},
+                   {"amount": 1, "n_decoys": 0}, {"amount": 1, "n_decoys": 2.5}):
+            with self.assertRaises(ValueError):
+                plan_protection(**kw)
 
 
 class Attacks(unittest.TestCase):

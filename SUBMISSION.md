@@ -21,9 +21,9 @@ One real payment output sits among decoy outputs that the owner's wallet watches
 
 The alarm is early warning only: by then a decoy has already been spent. What protects the real funds is the two-party rule on the real output, so a thief holding one stolen key can take decoys and set off the alarm, but cannot take the real funds.
 
-Why Wildcard: it is not a payment app, a market, a bridge or core tooling. It is a wallet-security building block meant to make holding and sending private funds less risky. It makes no privacy claim of its own and is not yet tied to shielded transactions; that is the main thing to prove next.
+Why Core & Tooling: it is a small, reusable wallet-side safety layer, not an app. It includes a planner that turns the chosen amount (fee taken out of it) and an adjustable decoy value into decoy sizes and costs. It makes no privacy claim of its own.
 
-What is built: a simulated ledger and wallet in Python and JavaScript, 29 + 21 automated tests, and a browser demo where the judge plays the thief, watches the alarm, then tries to unlock with one party and with both. The odds that a blind attacker reaches the real output before the wallet protects itself, k/(n+1), are measured on the real code and match the formula. They describe detection, not the safety of the funds. The alarm says a key was stolen; the second key still guards the real funds.
+What is built: a simulated ledger and wallet in Python and JavaScript, 42 + 29 automated tests, and a browser demo with a decoy planner, where the judge plays the thief, watches the alarm, then tries to unlock with one party and with both. The odds that a blind attacker reaches the real output before the wallet protects itself, k/(n+1), are measured on the real code and match the formula. They describe detection, not the safety of the funds. The alarm says a key was stolen; the second key still guards the real funds.
 
 Limits: keys are mock strings and there is no Zcash integration yet. The protected state is client-side, so it does not stop a key-holder spending on the ledger. The recovery branch is enforced by the ledger, so it works even while the wallet is protected; that key must be kept separate from everyday keys. An attacker who controls the wallet can learn which output is real. Mapping to Zcash is still to be verified on testnet.
 
