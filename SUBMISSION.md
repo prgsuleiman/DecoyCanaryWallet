@@ -9,9 +9,9 @@ Decoy Canary Wallet
 
 ## Track
 
-Core & Tooling. The project is a wallet-side safety tool: a simulator, a watcher and a browser demo for protecting private funds.
+Core & Tooling. The project is a wallet-side safety layer: a simulator, a decoy planner and a browser demo for protecting private funds.
 
-Honest note: the track descriptions on the form should be reread before submitting. The simulation is not connected to Zcash yet, which the description says openly.
+Honest note: the Core & Tooling track examples are infrastructure (Zebra, librustzcash, SDKs, provers). This project is a small reusable module plus a simulator, not infrastructure. Reread the track text on the form before choosing. The simulation is not connected to Zcash yet, and the description says so.
 
 ## Description (max 2000)
 
@@ -33,37 +33,26 @@ Limits: keys are mock strings and there is no Zcash integration yet. The protect
 | --- | --- |
 | Does the alarm stop the theft? | No. It is early warning. The two-party rule on the real output is the protection. |
 | Why can the recovery key work while the wallet is protected? | It is the way out if the receiver disappears, and the ledger enforces it, not the wallet. The key has to be kept apart from everyday keys. |
-| Is this on Zcash? | Not yet. It is a simulation. The next step is to map it to Zcash and test it. |
+| Is this on Zcash? | Not the decoy logic: that is a simulation. We made one real small payment on Zcash testnet through a wallet to measure the fee (0.0001 ZEC). We do not claim those notes are shielded, because the wallet does not show the pool. |
 | Is it new? | The idea of decoys that alert when touched is old (Canarytokens, a 2016 bitcoin-dev honeypot proposal). The combination here, decoys among real outputs with a protected state and a two-party unlock, is what we built. |
 
 ## Code repository
 
-Private until you are ready, then public. Rule 3 says a private repo made public on Oct 28 counts, but make it public on Oct 27 so a mistake still leaves a day.
+The GitHub repo link. It is public, which rule 3 allows.
 
 ## Working demo
 
-A link a judge can open. Two static files (`index.html`, `canary.js`), so any static host works.
-- GitHub Pages on a private repo usually needs a paid GitHub plan, so on the free plan switch it on when the repo goes public on Oct 27. Check this on your account.
-- Or drag the folder onto a static host that gives a public link. Do this on Oct 27 too, so the demo is not public before you submit.
+The GitHub Pages link (`https://<your-username>.github.io/<repo-name>/`). It serves `index.html` and `canary.js` from the top level of the repo. Open it in a private window before submitting.
 
 ## Demo video (2 minutes)
 
-Record with `index.html?seed=7` so the run is the same every time.
-
-| Time | Show | Say |
-| --- | --- | --- |
-| 0:00 | Title and the "Simulation" tag | One real payment hides among decoys. If a decoy moves when you did not move it, the wallet protects itself. |
-| 0:15 | Observer view, then Owner view | From outside every output looks the same. Only the owner knows which is real. Press Alice + Bob pay. |
-| 0:35 | New wallet, Thief sweeps everything | A thief with Alice's stolen key takes the decoys. The alarm fires. The real output stays safe because it needs Bob's key too. |
-| 1:05 | Try pay (blocked), Unlock Alice only (rejected), Unlock Alice + Bob | The wallet is in a protected state. Only both parties can resume. |
-| 1:30 | Honest limits box | This is a simulation. The alarm is early warning. Decoys cost real value. The two-party rule is the real protection. |
-| 1:50 | Next step | Next: map it to Zcash and test it. |
+Follow `VIDEO_SCRIPT.md` (kept on your computer, not in the repo). Open the demo with `?seed=7` so the run is the same every time. Upload to YouTube or Google Drive with "anyone with the link can view" and test the link in a private window.
 
 ## Checklist
 
-- [ ] Oct 22: optional one-day Zcash testnet check. If it fails, stay on the simulation and say so.
-- [ ] Oct 24: ask someone who has not seen the project to read the README.
-- [ ] Oct 26: record the video.
-- [ ] Oct 27: repo public, demo link live, SUBMIT. Tick the repo-public box on the form.
-- [ ] Oct 28: buffer. Fixes only.
+- [ ] Repo public, all files named correctly (no `(1)` in any name), latest files uploaded.
+- [ ] Demo link opens in a private window and the buttons work (thief sweep, unlock, pay with an amount, planner).
+- [ ] Video recorded, uploaded, link tested in a private window.
+- [ ] Track chosen and the description pasted (under 2,000 characters).
+- [ ] Repo-public box ticked, then SUBMIT. You can still edit until the deadline.
 - [ ] Never put a seed phrase, key or password in the repo, the form or the video.

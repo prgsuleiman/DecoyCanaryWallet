@@ -99,6 +99,32 @@ test("planner: bad input is rejected", () => {
     assert.throws(() => planProtection(...args));
 });
 
+test("robustness: bad numbers are rejected cleanly", () => {
+  for (const o of [{ amount: Infinity }, { amount: NaN }, { amount: -5 }, { fee: Infinity }, { fee: 0 },
+    { decoyValue: Infinity }, { decoyValue: NaN }, { decoyValue: 0.0001 }, { nDecoys: 0 }, { nDecoys: 101 }, { nDecoys: 2.5 }])
+    assert.throws(() => new CanaryWallet(new Ledger(), Object.assign({ rng: mulberry32(1) }, o)), undefined, JSON.stringify(o));
+  for (const args of [[Infinity], [NaN], [1, 101], [1, 1000000], [1, 3, { fee: Infinity }],
+    [1, 3, { decoyValue: Infinity }], [1, 3, { balance: NaN }], [1, 3, { balance: -1 }]])
+    assert.throws(() => planProtection(...args));
+});
+
+test("robustness: strange payment amounts never spend the note or crash", () => {
+  for (const amt of [Infinity, -Infinity, NaN, -1, 0, 0.0001, 100.0001, 1e30]) {
+    const [ledger, w] = make();
+    assert.strictEqual(w.pay("alice-key", "bob-key", amt), false, String(amt));
+    assert.ok(!ledger.outputs[w.realId].spent);
+    assert.deepStrictEqual(w.receipts, []);
+  }
+});
+
+test("a partial payment gives change and an exact receipt", () => {
+  const [, w] = make();
+  assert.ok(w.pay("alice-key", "bob-key", 40));
+  const r = w.receipts[0];
+  assert.ok(Math.abs(r.amount - 39.9999) < 1e-9 && Math.abs(r.change - 60) < 1e-9);
+  assert.ok(Math.abs(r.amount + r.fee + r.change - 100) < 1e-9);
+});
+
 test("payment needs both parties", () => {
   const [ledger, w] = make();
   assert.ok(!w.pay("alice-key", "alice-key"));

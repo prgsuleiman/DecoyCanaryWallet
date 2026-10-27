@@ -12,6 +12,7 @@
   const DEFAULT_FEE = 0.0001; // network fee measured on Zcash testnet
   const DECOY_FRACTION = 0.001; // each decoy holds 0.1% of the payment...
   const MIN_DECOY = 0.001; // ...but never less; must stay above the network fee
+  const MAX_DECOYS = 100; // sanity limit: more than this is almost certainly a typo
 
   // Small seeded random generator, so a demo can be replayed exactly (?seed=7).
   function mulberry32(seed) {
@@ -89,9 +90,13 @@
         },
         opts
       );
+      if (!(Number.isInteger(o.nDecoys) && o.nDecoys >= 1 && o.nDecoys <= MAX_DECOYS))
+        throw new Error(`nDecoys must be a whole number from 1 to ${MAX_DECOYS}`);
       if (!(o.k >= 1 && o.k <= o.nDecoys)) throw new Error("need 1 <= k <= nDecoys");
-      if (!(o.amount > 0 && o.fee > 0)) throw new Error("amount and fee must be positive");
-      if (o.decoyValue !== null && !(o.decoyValue > o.fee)) throw new Error("decoy value must be above the network fee");
+      if (!(Number.isFinite(o.amount) && Number.isFinite(o.fee) && o.amount > 0 && o.fee > 0))
+        throw new Error("amount and fee must be positive, finite numbers");
+      if (o.decoyValue !== null && !(Number.isFinite(o.decoyValue) && o.decoyValue > o.fee))
+        throw new Error("decoy value must be a number above the network fee");
       this.ledger = ledger;
       this.name = o.name;
       this.sender = o.sender;
@@ -271,11 +276,15 @@
    *  unless the owner sets decoyValue, which must still be above the fee. */
   function planProtection(amount, nDecoys = 3, opts = {}) {
     const o = Object.assign({ fee: DEFAULT_FEE, balance: null, fraction: DECOY_FRACTION, feeMultiple: 10, decoyValue: null }, opts);
-    if (!(amount > 0 && o.fee > 0 && o.fraction >= 0 && o.feeMultiple >= 1))
-      throw new Error("amount and fee must be positive");
+    if (!(Number.isFinite(amount) && Number.isFinite(o.fee) && amount > 0 && o.fee > 0 && o.fraction >= 0 && o.feeMultiple >= 1))
+      throw new Error("amount and fee must be positive, finite numbers");
     if (!(amount > o.fee)) throw new Error("the payment must be more than the fee");
-    if (!(Number.isInteger(nDecoys) && nDecoys >= 1)) throw new Error("nDecoys must be a whole number of at least 1");
-    if (o.decoyValue !== null && !(o.decoyValue > o.fee)) throw new Error("decoy value must be above the fee");
+    if (!(Number.isInteger(nDecoys) && nDecoys >= 1 && nDecoys <= MAX_DECOYS))
+      throw new Error(`the number of decoys must be a whole number from 1 to ${MAX_DECOYS}`);
+    if (o.decoyValue !== null && !(Number.isFinite(o.decoyValue) && o.decoyValue > o.fee))
+      throw new Error("decoy value must be a number above the fee");
+    if (o.balance !== null && !(Number.isFinite(o.balance) && o.balance >= 0))
+      throw new Error("balance must be zero or more");
     const r8 = (x) => Math.round(x * 1e8) / 1e8;
     const custom = o.decoyValue !== null;
     const decoy = r8(custom ? o.decoyValue : Math.max(amount * o.fraction, o.fee * o.feeMultiple));
@@ -335,7 +344,7 @@
   }
 
   return {
-    NORMAL, PROTECTED, DEFAULT_AMOUNT, DEFAULT_FEE, DECOY_FRACTION, MIN_DECOY,
+    NORMAL, PROTECTED, DEFAULT_AMOUNT, DEFAULT_FEE, DECOY_FRACTION, MIN_DECOY, MAX_DECOYS,
     Ledger, CanaryWallet, planProtection, fmtZec, sweepAttack, naiveSweep, blindAttackTrial, mulberry32, shuffle,
   };
 });

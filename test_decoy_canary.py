@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from decoy_canary import (MIN_DECOY, NORMAL, PROTECTED, CanaryWallet, Ledger,
+from decoy_canary import (MAX_DECOYS, MIN_DECOY, NORMAL, PROTECTED, CanaryWallet, Ledger,
                           blind_attack_trial, naive_sweep, plan_protection, sweep_attack)
 
 STOLEN = {"alice-key"}  # a thief who has stolen the sender's key only
@@ -223,6 +223,45 @@ class Planner(unittest.TestCase):
                    {"amount": 1, "n_decoys": 0}, {"amount": 1, "n_decoys": 2.5}):
             with self.assertRaises(ValueError):
                 plan_protection(**kw)
+
+
+class Robustness(unittest.TestCase):
+    """Strange input must be rejected cleanly, never produce nonsense."""
+
+    def test_wallet_rejects_bad_numbers(self):
+        inf, nan = float("inf"), float("nan")
+        for kw in ({"amount": inf}, {"amount": nan}, {"amount": -5}, {"amount": 0},
+                   {"fee": inf}, {"fee": nan}, {"fee": 0}, {"decoy_value": inf},
+                   {"decoy_value": nan}, {"decoy_value": 0.0001}, {"n_decoys": 0},
+                   {"n_decoys": MAX_DECOYS + 1}, {"n_decoys": 2.5}):
+            with self.assertRaises(ValueError, msg=str(kw)):
+                CanaryWallet(Ledger(), rng=random.Random(1), **kw)
+
+    def test_planner_rejects_infinity_nan_and_huge_counts(self):
+        inf, nan = float("inf"), float("nan")
+        for kw in ({"amount": inf}, {"amount": nan}, {"amount": 1, "fee": inf},
+                   {"amount": 1, "decoy_value": inf}, {"amount": 1, "balance": nan},
+                   {"amount": 1, "balance": -1}, {"amount": 1, "n_decoys": MAX_DECOYS + 1},
+                   {"amount": 1, "n_decoys": 10**6}):
+            with self.assertRaises(ValueError, msg=str(kw)):
+                plan_protection(**kw)
+
+    def test_pay_with_strange_amounts_never_crashes_or_overspends(self):
+        inf, nan = float("inf"), float("nan")
+        for amt in (inf, -inf, nan, -1, 0, 0.0001, 100.0001, 1e30):
+            ledger, w = make()
+            self.assertFalse(w.pay("alice-key", "bob-key", amt), msg=str(amt))
+            self.assertFalse(ledger.outputs[w.real_id]["spent"])
+            self.assertEqual(w.receipts, [])
+
+    def test_partial_payment_gives_change_and_exact_receipt(self):
+        _, w = make()
+        self.assertTrue(w.pay("alice-key", "bob-key", 40))
+        r = w.receipts[0]
+        self.assertAlmostEqual(r["amount"], 39.9999)
+        self.assertAlmostEqual(r["fee"], 0.0001)
+        self.assertAlmostEqual(r["change"], 60)
+        self.assertAlmostEqual(r["amount"] + r["fee"] + r["change"], 100)  # nothing created or lost
 
 
 class Attacks(unittest.TestCase):

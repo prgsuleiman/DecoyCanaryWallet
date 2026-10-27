@@ -20,6 +20,7 @@ Honest limits (keep these in the pitch):
     cannot carry a timelock condition, so a real version would use a third key
     share instead. To be verified on testnet.
 """
+import math
 import random
 
 NORMAL = "NORMAL"
@@ -30,6 +31,7 @@ DEFAULT_FEE = 0.0001    # network fee measured on Zcash testnet
 DECOY_FRACTION = 0.001  # each decoy holds 0.1% of the payment...
 MIN_DECOY = 0.001       # ...but never less. This must stay above the network fee,
                         # or sweep tools skip the decoy and the alarm never fires.
+MAX_DECOYS = 100        # sanity limit: more than this is almost certainly a typo
 
 
 class Ledger:
@@ -82,12 +84,14 @@ class CanaryWallet:
     def __init__(self, ledger, name="w", sender="alice-key", receiver="bob-key",
                  recovery_key="recovery-key", n_decoys=3, k=1, timeout_blocks=10,
                  amount=DEFAULT_AMOUNT, decoy_value=None, fee=DEFAULT_FEE, rng=None, verbose=False):
+        if not (isinstance(n_decoys, int) and 1 <= n_decoys <= MAX_DECOYS):
+            raise ValueError(f"n_decoys must be a whole number from 1 to {MAX_DECOYS}")
         if not 1 <= k <= n_decoys:
             raise ValueError("need 1 <= k <= n_decoys")
-        if not (amount > 0 and fee > 0):
-            raise ValueError("amount and fee must be positive")
-        if decoy_value is not None and not decoy_value > fee:
-            raise ValueError("decoy value must be above the network fee")
+        if not (math.isfinite(amount) and math.isfinite(fee) and amount > 0 and fee > 0):
+            raise ValueError("amount and fee must be positive, finite numbers")
+        if decoy_value is not None and not (math.isfinite(decoy_value) and decoy_value > fee):
+            raise ValueError("decoy value must be a number above the network fee")
         self.ledger = ledger
         self.name = name
         self.sender, self.receiver, self.recovery_key = sender, receiver, recovery_key
@@ -266,14 +270,17 @@ def plan_protection(amount, n_decoys=3, fee=0.0001, balance=None,
     the fee, unless the owner sets `decoy_value`, which must still be above the fee.
     Decoy value stays in the owner's account; only the decoy fees are spent for good.
     """
-    if not (amount > 0 and fee > 0 and fraction >= 0 and fee_multiple >= 1):
-        raise ValueError("amount and fee must be positive")
+    if not (math.isfinite(amount) and math.isfinite(fee) and amount > 0 and fee > 0
+            and fraction >= 0 and fee_multiple >= 1):
+        raise ValueError("amount and fee must be positive, finite numbers")
     if not amount > fee:
         raise ValueError("the payment must be more than the fee")
-    if not (isinstance(n_decoys, int) and n_decoys >= 1):
-        raise ValueError("n_decoys must be a whole number of at least 1")
-    if decoy_value is not None and not decoy_value > fee:
-        raise ValueError("decoy value must be above the fee")
+    if not (isinstance(n_decoys, int) and 1 <= n_decoys <= MAX_DECOYS):
+        raise ValueError(f"n_decoys must be a whole number from 1 to {MAX_DECOYS}")
+    if decoy_value is not None and not (math.isfinite(decoy_value) and decoy_value > fee):
+        raise ValueError("decoy value must be a number above the fee")
+    if balance is not None and not (math.isfinite(balance) and balance >= 0):
+        raise ValueError("balance must be zero or more")
     custom = decoy_value is not None
     decoy = round(decoy_value if custom else max(amount * fraction, fee * fee_multiple), 8)
     locked = round(n_decoys * decoy, 8)

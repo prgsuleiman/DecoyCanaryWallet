@@ -8,7 +8,7 @@ A tripwire for wallet compromise. One real payment output hides among decoy outp
 
 - **In the browser:** open `index.html`. Add `?seed=7` to the address for a repeatable run.
 - **In the terminal:** `python3 demo.py` plays the whole story: a normal payment, a thief sweeping every output, the protected state, the two-party unlock, the timelocked recovery key, and the attack odds measured on the real code.
-- **Tests:** `python3 -m unittest test_decoy_canary` (42 tests) and `node --test` (29 tests, the browser logic).
+- **Tests:** `python3 -m unittest test_decoy_canary` (46 tests) and `node --test` (32 tests, the browser logic).
 - **Decoy planner:** the page has a "Protect a payment" section. Enter the amount you want to send. The network fee comes out of it, so the receiver gets amount minus fee. You can set the decoy value yourself (it must stay above the fee) or leave it on auto. The page shows the decoy size, the fees, what stays locked in decoys and a checklist. It only plans: it sends nothing and connects to no wallet.
 
 No dependencies. Python 3.8+, and Node 18+ for the JavaScript tests.
@@ -45,7 +45,7 @@ This is a model, not a guarantee. It assumes the attacker cannot tell the output
 - **An attacker who controls the wallet** can learn which output is real, and then the decoys no longer help.
 - **The recovery key is a single point of trust.** The timelocked branch is enforced by the ledger, not by the wallet's protected state, so it still works while the wallet is protected. That is intended: it is the way out if the receiver disappears. It means anyone holding the recovery key can use it after the timelock, so keep that key separate from everyday keys. The timeout trades weaker protection against stuck funds.
 - **The alarm is early warning, not prevention.** By the time a decoy is spent, it is already gone. The two-party rule on the real output is what protects the real funds.
-- **"Looks the same" assumes script-hash outputs,** so spending conditions stay hidden until spent. This has to be checked on the chosen chain before it is claimed.
+- **Hidden amounts are a simulation.** The outsider view leaves amounts out; there are no real commitments or proofs. Whether decoys and the real note look the same on a real shielded pool has to be checked before it is claimed.
 - **No privacy claim.** This project does not make a payment private. It is an early-warning layer to sit beside one.
 
 ## Next step
@@ -64,20 +64,18 @@ This project combines the idea with a wallet: decoys among real outputs, a prote
 | File | Purpose |
 | --- | --- |
 | `decoy_canary.py` | Ledger, wallet, monitor, attacks (Python) |
-| `test_decoy_canary.py` | 42 tests |
+| `test_decoy_canary.py` | 46 tests |
 | `demo.py` | One command plays the whole story |
 | `canary.js` | The same logic in JavaScript |
-| `canary.test.js` | 29 tests for the JavaScript logic |
+| `canary.test.js` | 32 tests for the JavaScript logic |
 | `index.html` | Interactive browser demo |
 | `TESTNET.md` | Optional plan for a Zcash testnet check |
+| `SUBMISSION.md` | Draft answers for the Zecathon form |
+| `LICENSE` | MIT |
 
 ## Build notes
 
 All code in this repository was written during the Zecathon 2026 build window, with AI assistance (Claude for the build; ChatGPT and Gemini as reviewers of the design). No third-party libraries.
-
-## License
-
-MIT, see `LICENSE`.
 
 ## Use it in your wallet
 
@@ -110,3 +108,7 @@ Testnet note: a first small payment (0.001 ZEC, fee 0.0001 ZEC) to a `utest1…`
 **Out of scope:** a stolen receiver key, seed or wallet-software compromise, a thief who skips small notes after reading amounts, consensus attacks, and real cryptography (this is a simulation of the shielded model; a testnet check is the next step).
 
 **All-or-nothing transactions:** a realistic sweep tool only includes notes its key can spend, so it takes every decoy in one transaction and fires the alarm. A careless transaction that includes the two-key note is invalid as a whole: nothing moves and no alarm fires. Either way the real funds stay safe.
+
+## License
+
+MIT, see `LICENSE`.
