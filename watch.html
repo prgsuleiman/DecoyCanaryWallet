@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoy Watcher</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1c1b19; --muted: #66645e; --line: #e2dfd7;
+    --accent: #2457d6; --accent-ink: #ffffff; --ok: #1d7a46; --bad: #b3261e; --warn: #8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #13120f; --card: #1c1b17; --ink: #ece9e1; --muted: #9d9a90; --line: #2f2d27;
+      --accent: #7fa3ff; --accent-ink: #0c1530; --ok: #6fd39a; --bad: #ff8a80; --warn: #f2c066;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 16px; }
+  h1 { font-size: 1.5rem; margin: 0 0 6px; }
+  h2 { font-size: 1.05rem; margin: 0 0 10px; }
+  .lead { margin: 0 0 8px; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .tag { display: inline-block; font-size: 0.8rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  .note { color: var(--muted); font-size: 0.88rem; margin: 10px 0 0; }
+  label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+  input, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; }
+  textarea { min-height: 96px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 12px; }
+  .row label { flex: 1 1 140px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 8px 14px; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .badge { display: inline-block; font-weight: 700; border-radius: 8px; padding: 4px 12px; border: 2px solid; }
+  .badge.ok { color: var(--ok); border-color: var(--ok); } .badge.bad { color: var(--bad); border-color: var(--bad); }
+  ul.addrs { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; }
+  ul.addrs li { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.82rem; word-break: break-all; }
+  .st { font-weight: 600; }
+  .st.watching { color: var(--ok); } .st.SPENT { color: var(--bad); } .st.unknown { color: var(--warn); } .st.retired { color: var(--muted); }
+  ol.log { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; font-size: 0.9rem; }
+  ol.log li { border-left: 4px solid var(--line); padding: 4px 10px; }
+  ol.log li.alarm { border-color: var(--bad); color: var(--bad); font-weight: 600; } ol.log li.warn { border-color: var(--warn); } ol.log li.ok { border-color: var(--ok); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Decoy Watcher</h1>
+    <p class="lead">Watches small decoy addresses on Zcash testnet. If one is spent when you did not spend it, the alarm fires.</p>
+    <span class="tag">Reads public data only. Never paste a key or recovery words here.</span>
+  </header>
+
+  <section class="card">
+    <h2>Setup</h2>
+    <label>Decoy addresses, one per line (transparent testnet addresses, starting with t)
+      <textarea id="addrs" spellcheck="false" placeholder="tm..."></textarea>
+    </label>
+    <div class="row">
+      <label>Explorer API address<input id="base" value="https://explorer.testnet.z.cash/api" spellcheck="false"></label>
+      <label>Alarm after k spent decoys<input id="k" type="number" min="1" max="50" value="1"></label>
+      <label>Check every (seconds)<input id="every" type="number" min="5" max="600" value="20"></label>
+    </div>
+    <label style="margin-top:12px;flex-direction:row;display:flex;gap:8px;align-items:center">
+      <input id="pretend" type="checkbox" style="width:auto"> Use a pretend explorer (no network, three fake decoys) to see how the alarm behaves
+    </label>
+    <div class="btns">
+      <button id="bStart" class="primary">Start watching</button>
+      <button id="bCheck" disabled>Check now</button>
+      <button id="bStop" disabled>Stop</button>
+      <button id="bThief" disabled>Pretend a thief spends decoy 1</button>
+    </div>
+    <p id="err" class="note" role="alert"></p>
+    <p class="note">Insight explorers list transparent addresses only, so this live check uses transparent testnet decoys. Shielded decoys would need viewing-key scanning, which is not built. If the explorer is down or blocks browser requests, the address shows "unknown": that is neither an alarm nor "safe".</p>
+  </section>
+
+  <section class="card" aria-live="polite">
+    <h2>Status</h2>
+    <span id="badge" class="badge ok">NOT WATCHING</span>
+    <p id="summary" class="note"></p>
+    <ul id="list" class="addrs"></ul>
+  </section>
+
+  <section class="card">
+    <h2>Event log</h2>
+    <ol id="log" class="log"></ol>
+  </section>
+</main>
+
+<script src="watch.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const PRETEND = [1, 2, 3].map((i) => "tm" + "1".repeat(32) + i);
+  let watcher = null, timer = null, busy = false, fake = null;
+
+  function log(kind, text) {
+    const li = document.createElement("li");
+    li.className = kind;
+    li.textContent = new Date().toLocaleTimeString() + "  " + text;
+    $("log").prepend(li);
+    while ($("log").children.length > 200) $("log").lastChild.remove();
+  }
+
+  function makeFake() {
+    const data = {};
+    PRETEND.forEach((a) => (data[a] = { balanceSat: 100000, totalSentSat: 0, totalReceivedSat: 100000, unconfirmedBalanceSat: 0 }));
+    return data;
+  }
+
+  async function realFetch(url) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 10000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      if (!r.ok) throw new Error("explorer answered HTTP " + r.status);
+      return await r.json();
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error("explorer took too long");
+      if (e instanceof TypeError) throw new Error("could not reach the explorer (it may be down or may block browser requests)");
+      throw e;
+    } finally { clearTimeout(t); }
+  }
+
+  function render() {
+    const list = $("list");
+    list.innerHTML = "";
+    if (!watcher) { $("badge").textContent = "NOT WATCHING"; $("badge").className = "badge ok"; $("summary").textContent = ""; return; }
+    const prot = watcher.state === CanaryWatch.PROTECTED;
+    $("badge").textContent = prot ? "PROTECTED STATE" : "NORMAL";
+    $("badge").className = "badge " + (prot ? "bad" : "ok");
+    $("summary").textContent = `${watcher.alarmed.length} of ${watcher.addresses.length} decoys spent without authorization (protected state at ${watcher.k}).` +
+      (prot ? " Do not sign anything until both parties authorize." : "");
+    watcher.addresses.forEach((a) => {
+      const li = document.createElement("li");
+      const addr = document.createElement("span"); addr.className = "mono"; addr.textContent = a;
+      const st = document.createElement("span"); st.className = "st " + watcher.status[a]; st.textContent = watcher.status[a];
+      li.appendChild(addr); li.appendChild(st);
+      if (watcher.status[a] === "watching") {
+        const b = document.createElement("button");
+        b.textContent = "I spent this one myself";
+        b.onclick = () => { watcher.markOwnerSpend(a); log("ok", `marked ${a.slice(0, 8)}... as spent by the owner: ignored`); render(); };
+        li.appendChild(b);
+      }
+      list.appendChild(li);
+    });
+  }
+
+  async function check() {
+    if (!watcher || busy) return;
+    busy = true;
+    try { await watcher.poll(); } finally { busy = false; }
+    render();
+  }
+
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null; watcher = null; fake = null;
+    $("bStart").disabled = false; $("bCheck").disabled = $("bStop").disabled = $("bThief").disabled = true;
+    render();
+  }
+
+  async function start() {
+    $("err").textContent = "";
+    const pretend = $("pretend").checked;
+    const addresses = pretend ? PRETEND.slice() : $("addrs").value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+    const k = parseInt($("k").value, 10);
+    const every = parseInt($("every").value, 10);
+    if (!(every >= 5 && every <= 600)) { $("err").textContent = "Check every: use a number from 5 to 600 seconds."; return; }
+    try {
+      if (pretend) fake = makeFake();
+      watcher = new CanaryWatch.DecoyWatcher({
+        addresses, k, base: pretend ? "pretend://explorer" : $("base").value.trim(),
+        fetchJson: pretend
+          ? async (url) => { const a = decodeURIComponent(url.split("/addr/")[1]); if (!fake || !(a in fake)) throw new Error("unknown address"); return Object.assign({}, fake[a]); }
+          : realFetch,
+        onEvent: (e) => log(e.kind, e.text),
+      });
+    } catch (e) {
+      watcher = null; fake = null;
+      $("err").textContent = "Check the setup: " + e.message + ".";
+      return;
+    }
+    $("bStart").disabled = true; $("bCheck").disabled = $("bStop").disabled = false; $("bThief").disabled = !pretend;
+    log("ok", pretend ? "started with a PRETEND explorer: nothing here touches a real chain" : `started: watching ${addresses.length} address(es) on ${$("base").value.trim()}`);
+    busy = true;
+    try { await watcher.start(); } finally { busy = false; }
+    render();
+    timer = setInterval(check, every * 1000);
+  }
+
+  $("bStart").onclick = start;
+  $("bStop").onclick = () => { log("ok", "stopped"); stop(); };
+  $("bCheck").onclick = check;
+  $("bThief").onclick = async () => {
+    if (!fake) return;
+    const a = PRETEND[0];
+    fake[a].totalSentSat += fake[a].balanceSat; fake[a].balanceSat = 0;
+    log("warn", "(pretend) a thief spent decoy 1");
+    await check();
+  };
+  render();
+})();
+</script>
+</body>
+</html>

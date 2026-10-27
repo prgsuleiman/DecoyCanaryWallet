@@ -8,7 +8,7 @@ A tripwire for wallet compromise. One real payment output hides among decoy outp
 
 - **In the browser:** open `index.html`. Add `?seed=7` to the address for a repeatable run.
 - **In the terminal:** `python3 demo.py` plays the whole story: a normal payment, a thief sweeping every output, the protected state, the two-party unlock, the timelocked recovery key, and the attack odds measured on the real code.
-- **Tests:** `python3 -m unittest test_decoy_canary` (46 tests) and `node --test` (32 tests, the browser logic).
+- **Tests:** `python3 -m unittest test_decoy_canary` (46 tests) and `node --test` (46 tests: the browser logic and the watcher).
 - **Decoy planner:** the page has a "Protect a payment" section. Enter the amount you want to send. The network fee comes out of it, so the receiver gets amount minus fee. You can set the decoy value yourself (it must stay above the fee) or leave it on auto. The page shows the decoy size, the fees, what stays locked in decoys and a checklist. It only plans: it sends nothing and connects to no wallet.
 
 No dependencies. Python 3.8+, and Node 18+ for the JavaScript tests.
@@ -48,6 +48,16 @@ This is a model, not a guarantee. It assumes the attacker cannot tell the output
 - **Hidden amounts are a simulation.** The outsider view leaves amounts out; there are no real commitments or proofs. Whether decoys and the real note look the same on a real shielded pool has to be checked before it is claimed.
 - **No privacy claim.** This project does not make a payment private. It is an early-warning layer to sit beside one.
 
+## Decoy Watcher (live testnet check)
+
+`watch.html` watches real decoy addresses on Zcash testnet through a public Insight-style explorer API. Paste the decoy addresses, press Start, and it records what each looks like. If a decoy is spent (or has a pending spend) that you did not declare, it raises the alarm and the protected state, the same logic as the simulator.
+
+- **Transparent only.** Explorers list transparent addresses, so the live check uses transparent testnet decoys. Shielded decoys would need viewing-key scanning, which is not built.
+- **Reads public data only.** It never handles keys or recovery words.
+- **Honest about failure.** If the explorer is down, slow or blocks browser requests, an address shows "unknown". That is neither an alarm nor "safe".
+- **Pretend mode.** A checkbox runs the page against a fake explorer so the alarm can be seen without a network. The logic is covered by 14 tests, including broken and garbage explorer replies.
+- **Not verified against every explorer.** The default address is the Insight testnet explorer. Whether it accepts browser requests has to be tested live.
+
 ## Next step
 
 Decoys are meant to be small shielded notes. Next: a testnet watcher that sends a few small notes and detects when one is spent (see [TESTNET.md](TESTNET.md)), then threshold signing such as FROST for the two-party rule. None of this is verified yet.
@@ -69,6 +79,8 @@ This project combines the idea with a wallet: decoys among real outputs, a prote
 | `canary.js` | The same logic in JavaScript |
 | `canary.test.js` | 32 tests for the JavaScript logic |
 | `index.html` | Interactive browser demo |
+| `watch.html`, `watch.js` | Decoy Watcher: polls a Zcash testnet explorer for decoy addresses and raises the alarm when one is spent |
+| `watch.test.js` | 14 tests for the watcher |
 | `TESTNET.md` | Optional plan for a Zcash testnet check |
 | `SUBMISSION.md` | Draft answers for the Zecathon form |
 | `LICENSE` | MIT |
