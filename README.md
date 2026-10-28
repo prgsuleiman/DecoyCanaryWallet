@@ -50,13 +50,13 @@ This is a model, not a guarantee. It assumes the attacker cannot tell the output
 
 ## Decoy Watcher (live testnet check)
 
-`watch.html` watches real decoy addresses on Zcash testnet through a public Insight-style explorer API. Paste the decoy addresses, press Start, and it records what each looks like. If a decoy is spent (or has a pending spend) that you did not declare, it raises the alarm and the protected state, the same logic as the simulator.
+`watch.html` watches real decoy addresses on Zcash testnet through a public Insight-style explorer API. Paste the decoy addresses, enter an Insight-style explorer API address, press Start, and it records what each looks like. If a decoy is spent (or has a pending spend) that you did not declare, it raises the alarm and the protected state, the same logic as the simulator.
 
 - **Transparent only.** Explorers list transparent addresses, so the live check uses transparent testnet decoys. Shielded decoys would need viewing-key scanning, which is not built.
 - **Reads public data only.** It never handles keys or recovery words.
 - **Honest about failure.** If the explorer is down, slow or blocks browser requests, an address shows "unknown". That is neither an alarm nor "safe".
 - **Pretend mode.** A checkbox runs the page against a fake explorer so the alarm can be seen without a network. The logic is covered by 14 tests, including broken and garbage explorer replies.
-- **Not verified against every explorer.** The default address is the Insight testnet explorer. Whether it accepts browser requests has to be tested live.
+- **Live test result (Oct 28): not working.** The Insight testnet explorer we tried (`explorer.testnet.z.cash`) no longer exists (its address does not resolve), so there was nothing to read. The watcher showed "unknown" and raised no alarm, as designed. Another testnet explorer, `testnet.zcashexplorer.app`, is live but documents no address API that we could confirm, so no explorer address is built in and the live check is unproven. The pretend mode and the 14 tests cover the logic, including this failure case.
 
 ## Next step
 

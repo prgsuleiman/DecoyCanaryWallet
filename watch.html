@@ -63,7 +63,7 @@
       <textarea id="addrs" spellcheck="false" placeholder="tm..."></textarea>
     </label>
     <div class="row">
-      <label>Explorer API address<input id="base" value="https://explorer.testnet.z.cash/api" spellcheck="false"></label>
+      <label>Explorer API address (an Insight-style API)<input id="base" placeholder="https://.../api" spellcheck="false"></label>
       <label>Alarm after k spent decoys<input id="k" type="number" min="1" max="50" value="1"></label>
       <label>Check every (seconds)<input id="every" type="number" min="5" max="600" value="20"></label>
     </div>
@@ -170,6 +170,7 @@
     $("err").textContent = "";
     const pretend = $("pretend").checked;
     const addresses = pretend ? PRETEND.slice() : $("addrs").value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+    if (!pretend && $("base").value.trim() === "") { $("err").textContent = "Enter the address of an explorer API first, or tick the pretend explorer. The old default explorer no longer exists."; return; }
     const k = parseInt($("k").value, 10);
     const every = parseInt($("every").value, 10);
     if (!(every >= 5 && every <= 600)) { $("err").textContent = "Check every: use a number from 5 to 600 seconds."; return; }
